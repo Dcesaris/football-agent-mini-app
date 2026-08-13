@@ -289,4 +289,6 @@ table.league .pts { text-align: center; font-weight: 700; }
   #modal .sheet .opt { font-size: 15px; padding: 12px 14px; }
   #modal .sheet .opt .hint { font-size: 12px; }
   #toast { font-size: 14px; }
-}
+}.seg { display: flex; gap: 6px; }
+.seg button { flex: 1; padding: 8px 4px; border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button.on { background: var(--gold, #e8b34b); border-color: var(--gold, #e8b34b); color: #14110a; font-weight: 700; }

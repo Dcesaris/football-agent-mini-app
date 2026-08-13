@@ -278,16 +278,29 @@ const UI = (() => {
       <div class="list-item"><div class="grow small">${esc(r.line)}</div>
         <span class="${r.result === "W" ? "money" : r.result === "L" ? "" : "muted"}">${r.result === "W" ? "VITÓRIA" : r.result === "L" ? "DERROTA" : "EMPATE"}</span></div>`).join("");
 
-    const scorers = Object.entries(s.scorers).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, n]) => {
-      const p = playerById(id);
-      return `<div class="list-item"><div class="grow small">${p ? esc(p.name) : "?"} <span class="muted">(${p ? clubName(s.squad.some(x => x.id === id) ? s.clubId : (() => { const c = s.world.clubs.find(c => c.players.some(pp => pp.id === id)); return c ? c.id : ""; })()) : ""})</span></div><span class="media">${n}</span></div>`;
-    }).join("") || `<div class="muted small">Sem gols ainda.</div>`;
+    const tab = (s.ui && s.ui.leagueTab) || "table";
+    const ls = E.leagueStats(s);
+    const statRows = (arr, suf) => arr.length ? arr.map((r, i) => `
+      <div class="list-item"><div class="grow small"><b>${i + 1}º</b> ${esc(r.name)} <span class="muted">(${esc(r.club)})</span></div><span class="media">${r.v}${suf}</span></div>`).join("")
+      : `<div class="muted small">Sem dados ainda — jogue algumas partidas.</div>`;
+    const tabRow = `
+      <div class="seg">
+        <button class="${tab === "table" ? "on" : ""}" onclick="G.leagueView('table')">Tabela</button>
+        <button class="${tab === "gols" ? "on" : ""}" onclick="G.leagueView('gols')">Artilheiros</button>
+        <button class="${tab === "assists" ? "on" : ""}" onclick="G.leagueView('assists')">Assist.</button>
+        <button class="${tab === "notas" ? "on" : ""}" onclick="G.leagueView('notas')">Notas</button>
+      </div>
+      <div class="sep"></div>`;
+    const statsBody = tab === "gols" ? statRows(ls.gols, " gols")
+      : tab === "assists" ? statRows(ls.assists, " assist.")
+      : tab === "notas" ? statRows(ls.nota, "")
+      : `<div class="muted small">Estatísticas da divisão aparecem aqui: artilharia, assistências e notas médias.</div>`;
 
     return `
       <div class="card"><h3>🏆 ${esc(D.countries.find(c => c.id === s.world.country.id).name)} — ${E.ordinal(s.division)} divisão</h3>${table}</div>
       <div class="card"><h3>Rodada ${s.round}</h3>${fixtures || `<div class="muted small">Off-season — sem jogos.</div>`}</div>
       <div class="card"><h3>📈 Últimos resultados</h3>${results || `<div class="muted small">Ainda sem resultados.</div>`}</div>
-      <div class="card"><h3>🎯 Artilheiros</h3>${scorers}</div>`;
+      <div class="card"><h3>📊 Estatísticas da época</h3>${tabRow}${statsBody}</div>`;
   }
 
   function viewMarket() {
@@ -411,12 +424,17 @@ const UI = (() => {
         <button class="btn small grow" onclick="G.list('${p.id}', ${p.listed ? "false" : "true"})">${p.listed ? "Retirar da lista" : "Pôr na lista"}</button>
         <button class="btn small grow" onclick="G.loanList('${p.id}', ${p.loanListed ? "false" : "true"})">${p.loanListed ? "Tirar de empréstimos" : "🔁 Emprestar"}</button>
       </div>
-      <div class="row mt" style="gap:8px">
+      ${!p.loanedOut ? `<div class="row mt" style="gap:8px">
+        <button class="btn small primary grow" onclick="G.renewModal('${p.id}')">✍️ Renovar</button>
         <button class="btn small gold grow" onclick="G.sellModal('${p.id}')">Vender (negociar)</button>
         <button class="btn small danger grow" onclick="G.sell('${p.id}')">Venda rápida</button>
-      </div>
+      </div>` : ""}
+      ${p.contract.year === 0 ? `<div class="sub" style="color:var(--danger,#e5484d)">⚠️ Último ano de contrato!</div>` : ""}
       ${p.loanedOut ? `<div class="sub">📤 Emprestado — volta em junho.</div>` : ""}
       ${p.loanedIn ? `<div class="sub">📥 Emprestado ao clube — volta em junho.</div>` : ""}`;
+    const rating = E.playerRating(p);
+    const contractTxt = ctx === "squad" || !ctx ? `até ${E.contractEnd(s, p)}` : "—";
+    const inSquad = ctx === "squad" || !ctx;
     openModal(`
       <div class="row">
         <div class="pos" style="width:44px;height:44px;font-size:12px">${posShort[p.pos]}</div>
@@ -434,12 +452,17 @@ const UI = (() => {
       <div class="row">
         <div class="stat grow"><div class="v" style="font-size:14px">${fmt(p.wage)}</div><div class="l">Salário/mês</div></div>
         <div class="stat grow"><div class="v" style="font-size:14px">${fmt(p.value)}</div><div class="l">Valor</div></div>
-        <div class="stat grow"><div class="v" style="font-size:14px">${p.goals}</div><div class="l">Gols</div></div>
+        <div class="stat grow"><div class="v" style="font-size:14px">${p.goals}</div><div class="l">Gols na época</div></div>
         <div class="stat grow"><div class="v" style="font-size:14px">${p.apps}</div><div class="l">Jogos</div></div>
+      </div>
+      <div class="row">
+        <div class="stat grow"><div class="v" style="font-size:14px">${p.assists || 0}</div><div class="l">Assistências</div></div>
+        <div class="stat grow"><div class="v" style="font-size:14px">${p.yellow || 0}</div><div class="l">Amarelos</div></div>
+        <div class="stat grow"><div class="v" style="font-size:14px">${rating !== null ? rating : "—"}</div><div class="l">Nota média</div></div>
+        <div class="stat grow"><div class="v" style="font-size:12px">${inSquad ? contractTxt : "—"}</div><div class="l">Contrato</div></div>
       </div>
       <div class="sep"></div>
       ${actions}
-      ${ctx === "squad" || !ctx ? "" : ""}
       <button class="btn mt" onclick="UI.closeModal()">Fechar</button>`);
   }
 
@@ -502,6 +525,35 @@ const UI = (() => {
           <span class="hint">${fmt(o.amount)} — toque para aceitar</span>
         </button>`).join("")}
       <button class="opt muted" onclick="UI.closeModal()">Não vender agora</button>`);
+  }
+
+  function renewModal(id) {
+    const s = state();
+    const p = s.squad.find(x => x.id === id);
+    const o = G._renew;
+    if (!p || !o) return;
+    if (o.id !== id) { o.id = id; o.years = 1; o.mult = 0; }
+    const wage = Math.round(p.wage * (1 + o.mult));
+    const total = wage * o.years * 12;
+    openModal(`
+      <h2>✍️ Renovar — ${esc(p.name)}</h2>
+      <div class="text">Contrato atual: <b>${fmt(p.wage)}</b>/mês até <b>${E.contractEnd(s, p)}</b>.<br>Moral ${p.morale}${p.wantOut ? " · ⚠️ quer sair do clube!" : ""}.</div>
+      <div class="row mt" style="justify-content:center;gap:8px;align-items:center">
+        <span class="muted small">Anos:</span>
+        <button class="btn small" onclick="G.renewYears(-1)">−</button>
+        <div class="media" style="min-width:40px;text-align:center;font-size:18px">${o.years}</div>
+        <button class="btn small" onclick="G.renewYears(1)">+</button>
+      </div>
+      <div class="row mt" style="gap:8px">
+        <button class="btn small grow ${o.mult === 0 ? "primary" : ""}" onclick="G.renewWage(0)">Salário atual</button>
+        <button class="btn small grow ${o.mult === .1 ? "primary" : ""}" onclick="G.renewWage(.1)">+10%</button>
+        <button class="btn small grow ${o.mult === .25 ? "primary" : ""}" onclick="G.renewWage(.25)">+25%</button>
+      </div>
+      <div class="sep"></div>
+      <div class="text">Nova proposta: <b class="money">${fmt(wage)}</b>/mês × ${o.years} ano(s) = <b>${fmt(total)}</b></div>
+      <div class="sub">Salários maiores e moral alta aumentam a chance de aceite. Último ano de contrato é a melhor hora de renovar.</div>
+      <button class="btn primary mt" onclick="G.renewGo()">Fazer proposta</button>
+      <button class="btn mt" onclick="UI.closeModal()">Cancelar</button>`);
   }
 
   function eventModal(e) {
@@ -620,5 +672,5 @@ const UI = (() => {
     m.addEventListener("click", e => { if (e.target === m) closeModal(); });
   }
 
-  return { init, show, updateTopbar, toast, openModal, closeModal, playerModal, negotiateModal, counterModal, sellModal, eventModal, promiseModal, reviewModal, seasonEndModal, deadModal, matchModal, playerById, esc };
+  return { init, show, updateTopbar, toast, openModal, closeModal, playerModal, negotiateModal, counterModal, sellModal, renewModal, eventModal, promiseModal, reviewModal, seasonEndModal, deadModal, matchModal, playerById, esc };
 })();

@@ -217,6 +217,46 @@ const G = {
     UI.show("squad");
   },
 
+  renewModal(id) {
+    const p = this.state.squad.find(x => x.id === id);
+    if (!p) return;
+    this._renew = { id, years: 1, mult: 0 };
+    UI.renewModal(id);
+  },
+
+  renewYears(d) {
+    const o = this._renew;
+    if (!o) return;
+    o.years = Math.max(1, Math.min(4, o.years + d));
+    UI.renewModal(o.id);
+  },
+
+  renewWage(mult) {
+    const o = this._renew;
+    if (!o) return;
+    o.mult = mult;
+    UI.renewModal(o.id);
+  },
+
+  renewGo() {
+    const o = this._renew;
+    if (!o) return;
+    const p = this.state.squad.find(x => x.id === o.id);
+    if (!p) return;
+    const wage = Math.round(p.wage * (1 + o.mult));
+    const r = E.renewPlayer(this.state, o.id, o.years, wage);
+    E.save(this.state);
+    UI.closeModal();
+    UI.toast(r.msg);
+    UI.show("squad");
+  },
+
+  leagueView(tab) {
+    this.state.ui = this.state.ui || {};
+    this.state.ui.leagueTab = tab;
+    UI.show("league");
+  },
+
   sign(id) {
     const r = E.signFree(this.state, id);
     E.save(this.state);

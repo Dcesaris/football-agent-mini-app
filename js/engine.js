@@ -272,8 +272,8 @@ const E = (() => {
     const hName = home.name, aName = away.name;
     const hShort = home.name.split(" ")[0], aShort = away.name.split(" ")[0];
 
-    const eH = clamp(1.35 + (hs.atk - as.def) * .055 + (isUserHome ? .1 : 0) + (hs.mid - as.mid) * .03, .25, 3.8);
-    const eA = clamp(1.35 + (as.atk - hs.def) * .055 + (isUserAway ? .1 : 0) + (as.mid - hs.mid) * .03, .25, 3.8);
+    const eH = clamp(1.35 + (hs.atk - as.def) * .055 + .08 + (hs.mid - as.mid) * .03, .25, 3.8);
+    const eA = clamp(1.35 + (as.atk - hs.def) * .055 - .08 + (as.mid - hs.mid) * .03, .25, 3.8);
     const poisson = (l) => { let L = Math.exp(-l), k = 0, p = 1; do { k++; p *= Math.random(); } while (p > L); return k - 1; };
     let gH = poisson(eH), gA = poisson(eA);
     if (gH + gA > 9) { gH = Math.floor(gH / 2); gA = Math.floor(gA / 2); }
@@ -302,6 +302,18 @@ const E = (() => {
       return w[w.length - 1].player;
     };
 
+    const whoAssist = (side, scorer) => {
+      const club = side === 0 ? home : away;
+      const { xi } = (side === 0 ? hs : as);
+      const pool = xi.filter(x => x.player.id !== scorer.id && ["EXT","MP","ATK","MID"].includes(x.slot));
+      const w = pool.map(x => ({ player: x.player, wt: x.player.media * (x.player.pos === "ME" ? 1.2 : 1) }));
+      const total = w.reduce((s, x) => s + x.wt, 0);
+      if (!total) return null;
+      let r = Math.random() * total;
+      for (const x of w) { r -= x.wt; if (r <= 0) return x.player; }
+      return w[w.length - 1].player;
+    };
+
     const goalsScored = [0, 0];
     for (const t of evMins) {
       // distribui: se faltam gols, mais chance de gol
@@ -314,8 +326,9 @@ const E = (() => {
         goalsScored[side]++;
         gLeft[side]--;
         m.shots[side]++;
+        const assist = chance(.65) ? whoAssist(side, p) : null;
         const txt = pick(D.cmt.goal).replace("{p}", p.name).replace("{c}", side === 0 ? hShort : aShort);
-        liveEvents(state, m, t, side, txt, { type: "goal", player: p.id });
+        liveEvents(state, m, t, side, txt, { type: "goal", player: p.id, assist: assist ? assist.id : null });
       } else if (chance(.5)) {
         const side = Math.random() < .5 ? 0 : 1;
         const p = whoScored(side);
@@ -374,11 +387,31 @@ const E = (() => {
       }
       if (p.wantOut && p.morale > 60) p.wantOut = false;
     }
-    // gols do user
+    // gols / assistências do user
     const scorers = m.events.filter(e => e.type === "goal" && e.side === us);
     for (const e of scorers) {
       const p = state.squad.find(x => x.id === e.player);
       if (p) p.goals++;
+      if (e.assist) {
+        const a = state.squad.find(x => x.id === e.assist);
+        if (a) a.assists++;
+      }
+    }
+    // cartões do user
+    const cardEvs = m.events.filter(e => e.type === "card" && e.side === us);
+    for (const e of cardEvs) {
+      const p = state.squad.find(x => x.id === e.player);
+      if (p) p.yellow++;
+    }
+    // nota da partida para titulares
+    for (const { player } of xi) {
+      const g = scorers.filter(e => e.player === player.id).length;
+      const a = scorers.filter(e => e.assist === player.id).length;
+      const y = cardEvs.filter(e => e.player === player.id).length;
+      let r = 6.4 + (result === "W" ? .5 : result === "L" ? -.4 : 0) + g * 1.1 + a * .6 - y * .2;
+      r = clamp(Math.round(r * 10) / 10, 3, 10);
+      player.ratingSum = (player.ratingSum || 0) + r;
+      player.ratingN = (player.ratingN || 0) + 1;
     }
     // lesões do user
     const injEvents = m.events.filter(e => e.type === "injury" && e.side === us);
@@ -441,10 +474,19 @@ const E = (() => {
     for (const f of fixtures) {
       const m = simMatch(state, f.home, f.away, false, null, null, null);
       applyScoreTable(state, m, f.home, f.away);
+      const hClub = state.world.clubs.find(c => c.id === f.home);
+      const aClub = state.world.clubs.find(c => c.id === f.away);
+      for (const e of m.events) {
+        const club = e.side === 0 ? hClub : aClub;
+        if (!club) continue;
+        const p = club.players.find(x => x.id === e.player);
+        if (e.type === "goal") { if (p) p.goals = (p.goals || 0) + 1; if (e.assist) { const a = club.players.find(x => x.id === e.assist); if (a) a.assists = (a.assists || 0) + 1; } }
+        else if (e.type === "card") { if (p) p.yellow = (p.yellow || 0) + 1; }
+      }
       // energia das outras equipes
       const drainClub = c => c.players.forEach(p => { p.energy = clamp(p.energy - (p.apps % 2 ? 12 : 8), 15, 100); });
-      drainClub(state.world.clubs.find(c => c.id === f.home));
-      drainClub(state.world.clubs.find(c => c.id === f.away));
+      drainClub(hClub);
+      drainClub(aClub);
     }
   }
 
@@ -988,6 +1030,58 @@ const E = (() => {
     if (list) state.news.unshift({ icon: "market", text: `${p.name} entrou na lista de empréstimos.`, day: state.day });
   }
 
+  function contractEnd(state, p) {
+    return "30/0" + p.contract.month + "/" + (state.cal.year + p.contract.year);
+  }
+
+  function playerRating(p) {
+    if (!p.ratingN) return null;
+    return Math.round((p.ratingSum / p.ratingN) * 10) / 10;
+  }
+
+  function renewPlayer(state, pid, years, wage) {
+    const p = state.squad.find(x => x.id === pid);
+    if (!p) return { ok: false, msg: "Jogador não encontrado." };
+    years = clamp(Math.round(years), 1, 4);
+    wage = Math.max(1000, Math.round(wage / 1000) * 1000);
+    let chance = .75;
+    if (wage >= p.wage * 1.1) chance += .15;
+    else if (wage < p.wage) chance -= .3;
+    if (p.morale > 70) chance += .1;
+    else if (p.morale < 35) chance -= .15;
+    if (p.wantOut) chance -= .3;
+    if (p.age >= 33) chance += .1;
+    if (p.age <= 21) chance += .05;
+    if (p.contract.year >= 3) chance -= .1;
+    if (Math.random() < chance) {
+      p.contract = { month: 6, year: years };
+      p.wage = wage;
+      p.wantOut = false;
+      p.morale = clamp(p.morale + 5, 5, 100);
+      state.news.unshift({ icon: "contract", text: `✍️ ${p.name} renovou por ${years} ano(s) — ${fmtM(p.wage)}/mês.`, day: state.day });
+      return { ok: true, msg: `${p.name} aceitou renovar por ${years} ano(s).` };
+    }
+    p.morale = clamp(p.morale - 5, 5, 100);
+    if (chance(.3)) p.wantOut = true;
+    state.news.unshift({ icon: "contract", text: `✖ ${p.name} recusou a proposta de renovação.`, day: state.day });
+    return { ok: false, msg: `${p.name} recusou. Tente com salário maior.` };
+  }
+
+  function leagueStats(state) {
+    const clubs = state.world.byDiv[state.division] || [];
+    const rows = [];
+    for (const c of clubs) for (const p of c.players) rows.push(p);
+    const clubOf = p => { for (const c of clubs) if (c.players.includes(p)) return c.name; return ""; };
+    const withStats = rows.filter(p => (p.goals || p.assists || p.ratingN));
+    const gols = withStats.filter(p => p.goals > 0).sort((a, b) => b.goals - a.goals || b.media - a.media).slice(0, 10)
+      .map(p => ({ name: p.name, club: clubOf(p), v: p.goals, extra: p.assists || 0, media: p.media }));
+    const assists = withStats.filter(p => p.assists > 0).sort((a, b) => b.assists - a.assists || b.media - a.media).slice(0, 10)
+      .map(p => ({ name: p.name, club: clubOf(p), v: p.assists, extra: p.goals || 0, media: p.media }));
+    const nota = withStats.filter(p => p.ratingN).map(p => ({ name: p.name, club: clubOf(p), v: playerRating(p), extra: p.goals || 0, media: p.media }))
+      .sort((a, b) => b.v - a.v).slice(0, 10);
+    return { gols, assists, nota };
+  }
+
   function captureExtra(state) {
     if (state.extraCaptures >= 2) return { ok: false, msg: "Limite de capturas extras atingido (2/temporada)." };
     if (state.academy.length >= 12) return { ok: false, msg: "Academia cheia (12/12)." };
@@ -1113,7 +1207,15 @@ const E = (() => {
         if (!p.injury) p.energy = clamp(p.energy + 5, 10, 100);
       }
     }
-    if (state.cal.day === 1) monthPay(state);
+    if (state.cal.day === 1) {
+      monthPay(state);
+      // Brasfoot: valor de mercado oscila mês a mês conforme a forma
+      for (const p of state.squad) {
+        if (p.loanedOut) continue;
+        const f = p.form > 70 ? 1.03 : p.form < 40 ? .97 : 1;
+        p.value = Math.round(clamp(p.value * rnd(.96, 1.06) * f, 20000, 90000000));
+      }
+    }
     if (state.stadiumWork) {
       state.stadiumWork.days--;
       if (state.stadiumWork.days <= 0) {
@@ -1281,7 +1383,8 @@ const E = (() => {
     state.fixtures = fixturesFor(state.world.byDiv[newDiv]);
     state.tables = { [newDiv]: {} };
     state.scorers = {};
-    state.squad.forEach(p => { p.goals = 0; p.apps = 0; });
+    state.squad.forEach(p => { p.goals = 0; p.apps = 0; p.assists = 0; p.yellow = 0; p.ratingSum = 0; p.ratingN = 0; });
+    for (const c of state.world.clubs) for (const p of c.players) { p.goals = 0; p.apps = 0; p.assists = 0; p.yellow = 0; }
     state.tourDone = false; state.intakeDone = false; state.reviewDone = false; state.extraCaptures = 0; state.tourDev = 0;
     state.promise = null; state.promisedMinutes = null; state.results = [];
     state.negMonths = 0; state.monthHistory = [];
@@ -1332,6 +1435,7 @@ const E = (() => {
     newCareer, advanceDay, playMatch, finishMatch, seasonReview,
     resolve, refreshMarket, buyPlayer, signFree, listPlayer, sellNow,
     negotiateBuy, sellOffers, acceptSellOffer, listLoan,
+    renewPlayer, contractEnd, playerRating, leagueStats,
     captureExtra, setPromise, save, load, eraseSave,
     simMatch, getTable, fixturesFor, pickXI,
     getters, fmtM, dayOf, ordinal,
