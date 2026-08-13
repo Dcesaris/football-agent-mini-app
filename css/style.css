@@ -254,3 +254,39 @@ table.league .pts { text-align: center; font-weight: 700; }
 .sep { border-top: 1px solid var(--line); margin: 10px 0; }
 .hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .hdr h2 { margin: 0; font-size: 16px; }
+
+/* ---------- desktop ---------- */
+@media (min-width: 900px) {
+  body { font-size: 16px; }
+  #app { max-width: 780px; padding-top: 66px; padding-bottom: 88px; }
+  #topbar { padding: 10px 16px; }
+  #topbar .club .name { font-size: 17px; }
+  #topbar .club .meta { font-size: 12px; }
+  #topbar .cash { font-size: 15px; }
+  #bottomnav button { font-size: 12px; padding: 8px 4px 10px; }
+  #bottomnav button .ic { font-size: 22px; }
+  #modal { align-items: center; }
+  #modal .sheet { max-width: 680px; border-radius: 16px; margin: 4vh auto; max-height: 92vh; }
+  .card { padding: 14px 16px; }
+  .card h3 { font-size: 14px; }
+  .card .sub { font-size: 13px; }
+  .list-item { padding: 11px 6px; }
+  .list-item .name { font-size: 15px; }
+  .list-item .meta { font-size: 12px; }
+  .list-item .media { font-size: 16px; }
+  .btn { font-size: 16px; padding: 13px; }
+  .btn.small { font-size: 14px; padding: 8px 12px; }
+  .pitch { padding: 18px 14px; gap: 16px; }
+  .slot-btn { width: 86px; padding: 7px 3px; font-size: 11px; }
+  .slot-btn .pl { font-size: 13px; }
+  .chips .chip { font-size: 12px; padding: 5px 13px; }
+  table.league { font-size: 14px; }
+  table.league th { font-size: 11px; }
+  .news-item { font-size: 14px; }
+  #livediv { height: 52vh; }
+  .bar-row { font-size: 12px; }
+  #modal .sheet h2 { font-size: 19px; }
+  #modal .sheet .opt { font-size: 15px; padding: 12px 14px; }
+  #modal .sheet .opt .hint { font-size: 12px; }
+  #toast { font-size: 14px; }
+}

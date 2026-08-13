@@ -532,8 +532,10 @@ const E = (() => {
     const wantMin = state.squad.filter(p => p.apps <= 2 && !p.injury && p.age >= 22 && p.media >= 55);
     if (wantMin.length && r < .6) return mkEvent(state, "wantsMinutes", { playerId: wantMin[0].id });
     if (r < .7) return mkEvent(state, "renewal");
-    if (r < .8) return mkEvent(state, "loanIn");
-    if (r < .9) return mkEvent(state, "sellOffer");
+    const loanCand = state.squad.some(p => p.loanListed && !p.loanedOut && !p.injury);
+    if (r < .78 && loanCand) return mkEvent(state, "loanOutReq");
+    if (r < .86) return mkEvent(state, "loanIn");
+    if (r < .93) return mkEvent(state, "sellOffer");
     return mkEvent(state, "press");
   }
 
@@ -643,7 +645,8 @@ const E = (() => {
       ];
     },
     loanOutReq(state, e) {
-      const cand = state.squad.filter(p => !p.loanedOut && p.age <= 23 && p.media < 70);
+      let cand = state.squad.filter(p => p.loanListed && !p.loanedOut && !p.injury);
+      if (!cand.length) cand = state.squad.filter(p => !p.loanedOut && !p.injury && p.age <= 23 && p.media < 70);
       if (!cand.length) return null;
       const p = cand[ri(0, cand.length - 1)];
       const club = pick(state.world.byDiv[state.division].filter(c => c.id !== state.clubId));
@@ -857,6 +860,7 @@ const E = (() => {
       if (!cand.length) continue;
       const p = JSON.parse(JSON.stringify(pick(cand)));
       p.id = uid(); p.from = club.name; p.value = Math.round(p.value * divFactor);
+      p.asking = Math.round(p.value * rnd(1.08, 1.45));
       state.market.push(p);
     }
     state.market.sort((a, b) => b.media - a.media);
@@ -922,6 +926,66 @@ const E = (() => {
     removeFromSquad(state, p);
     state.news.unshift({ icon: "market", text: `Vendeu ${p.name} por ${fmtM(offer)}.`, day: state.day });
     return { ok: true, msg: `Vendeu ${p.name} por ${fmtM(offer)}.` };
+  }
+
+  function negotiateBuy(state, pid, offer, force) {
+    const p = state.market.find(x => x.id === pid);
+    if (!p) return { ok: false, msg: "Jogador não encontrado." };
+    if (state.flagCantera) return { ok: false, msg: "Regra do desafio impede contratar no mercado." };
+    if (state.flagSangre) {
+      const xi = pickXI(state, state.world.clubs.find(c => c.id === state.clubId), state.lineup, state.squad).xi;
+      const avgBest = xi.reduce((s, x) => s + x.player.media, 0) / Math.max(1, xi.length);
+      if (p.media > avgBest) return { ok: false, msg: `Média dele (${p.media}) é maior que a do seu melhor onze (${Math.round(avgBest)}). O talento te ignora.` };
+    }
+    if (state.squad.length >= 20) return { ok: false, msg: "Plantel cheio (20). Venda ou empreste antes." };
+    offer = Math.max(0, Math.round(offer));
+    if (state.cash < offer) return { ok: false, msg: "Sem orçamento suficiente." };
+    const accept = () => {
+      state.cash -= offer;
+      p.from = undefined; p.listed = false;
+      state.squad.push(p);
+      state.market = state.market.filter(x => x.id !== pid);
+      state.news.unshift({ icon: "market", text: `Contratou ${p.name} (${p.pos}) por ${fmtM(offer)}.`, day: state.day });
+      return { ok: true, msg: `${p.name} assinou por ${fmtM(offer)}!` };
+    };
+    if (force || offer >= p.asking) return accept();
+    const ratio = offer / p.asking;
+    if (ratio >= .92) {
+      if (chance(.7)) return accept();
+      return { ok: false, counter: Math.round(p.asking * .97), msg: "Perto, mas o clube quer mais." };
+    }
+    if (ratio >= .8) {
+      if (chance(.45)) return accept();
+      return { ok: false, counter: Math.round(p.asking * rnd(.94, 1)), msg: "O clube pede um pouco mais." };
+    }
+    if (chance(.25)) return { ok: false, reject: true, msg: "O clube recusa terminantemente. Volte com mais dinheiro." };
+    return { ok: false, counter: Math.round(p.asking * rnd(.88, .95)), msg: "O clube recusa e contrapropõe." };
+  }
+
+  function sellOffers(state, pid) {
+    const p = state.squad.find(x => x.id === pid);
+    if (!p || p.loanedOut) return null;
+    const pool = state.world.byDiv[state.division].filter(c => c.id !== state.clubId);
+    if (!pool.length) return null;
+    const clubs = [...pool].sort(() => Math.random() - .5).slice(0, 3);
+    return clubs.map(c => ({ club: c.name, amount: Math.round(p.value * rnd(.75, 1.15)) })).sort((a, b) => b.amount - a.amount);
+  }
+
+  function acceptSellOffer(state, pid, amount) {
+    const p = state.squad.find(x => x.id === pid);
+    if (!p) return { ok: false, msg: "Não encontrado." };
+    const cash = Math.round(amount * D.econ.sellFee);
+    state.cash += cash;
+    removeFromSquad(state, p);
+    state.news.unshift({ icon: "market", text: `Vendeu ${p.name} por ${fmtM(cash)}.`, day: state.day });
+    return { ok: true, msg: `Vendeu ${p.name} por ${fmtM(cash)}.` };
+  }
+
+  function listLoan(state, pid, list) {
+    const p = state.squad.find(x => x.id === pid);
+    if (!p || p.loanedOut) return;
+    p.loanListed = list;
+    if (list) state.news.unshift({ icon: "market", text: `${p.name} entrou na lista de empréstimos.`, day: state.day });
   }
 
   function captureExtra(state) {
@@ -1267,6 +1331,7 @@ const E = (() => {
   return {
     newCareer, advanceDay, playMatch, finishMatch, seasonReview,
     resolve, refreshMarket, buyPlayer, signFree, listPlayer, sellNow,
+    negotiateBuy, sellOffers, acceptSellOffer, listLoan,
     captureExtra, setPromise, save, load, eraseSave,
     simMatch, getTable, fixturesFor, pickXI,
     getters, fmtM, dayOf, ordinal,

@@ -152,6 +152,71 @@ const G = {
     UI.show("market");
   },
 
+  buyModal(id) {
+    this._offer = { id, amount: 0 };
+    UI.negotiateModal(id);
+  },
+
+  offerN(delta) {
+    const s = this.state;
+    const o = this._offer;
+    if (!o) return;
+    const p = s.market.find(x => x.id === o.id);
+    if (!p) return;
+    o.amount = Math.max(0, Math.min(Math.round((o.amount || p.value) + delta), s.cash));
+    UI.negotiateModal(o.id);
+  },
+
+  offerAt(amount) {
+    const o = this._offer;
+    if (!o) return;
+    o.amount = Math.round(amount);
+    UI.negotiateModal(o.id);
+  },
+
+  negotiate(id, offer) {
+    const r = E.negotiateBuy(this.state, id, offer);
+    E.save(this.state);
+    if (r.ok) { UI.closeModal(); UI.toast(r.msg); UI.show("market"); return; }
+    if (r.reject) { UI.closeModal(); UI.toast(r.msg); UI.show("market"); return; }
+    this._offer = { id, amount: r.counter };
+    UI.counterModal(id, r.counter, r.msg);
+  },
+
+  counterPick(id, accept) {
+    if (!accept) { UI.closeModal(); UI.show("market"); return; }
+    const amount = this._offer ? this._offer.amount : 0;
+    const r = E.negotiateBuy(this.state, id, amount, true);
+    E.save(this.state);
+    UI.closeModal();
+    UI.toast(r.msg);
+    UI.show("market");
+  },
+
+  sellModal(id) {
+    const offers = E.sellOffers(this.state, id);
+    if (!offers) { UI.toast("Não dá para vender agora"); return; }
+    this._sell = { id, offers };
+    UI.sellModal(id, offers);
+  },
+
+  sellPick(idx) {
+    const o = this._sell;
+    if (!o || !o.offers[idx]) return;
+    const r = E.acceptSellOffer(this.state, o.id, o.offers[idx].amount);
+    E.save(this.state);
+    UI.closeModal();
+    UI.toast(r.msg);
+    UI.show("squad");
+  },
+
+  loanList(id, v) {
+    E.listLoan(this.state, id, v);
+    E.save(this.state);
+    UI.closeModal();
+    UI.show("squad");
+  },
+
   sign(id) {
     const r = E.signFree(this.state, id);
     E.save(this.state);
@@ -207,6 +272,17 @@ const G = {
   },
 
   slotAuto() {
+    const s = this.state;
+    const club = s.world.clubs.find(c => c.id === s.clubId);
+    const { xi } = E.pickXI(s, club, s.lineup, s.squad);
+    const bs = {};
+    xi.forEach(x => { bs[x.key] = x.player.id; });
+    s.lineup.bySlot = bs;
+    E.save(s);
+    UI.show("tactics");
+  },
+
+  slotClear() {
     this.state.lineup.bySlot = {};
     E.save(this.state);
     UI.show("tactics");

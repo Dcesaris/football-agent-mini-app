@@ -179,7 +179,7 @@ const UI = (() => {
         <div class="pos">${posShort[p.pos]}</div>
         <div class="grow">
           <div class="name">${esc(p.name)}</div>
-          <div class="meta">${p.age} anos · ${D.roles[p.pos].find(r => r.code === p.role)?.name || p.role}${p.injury ? " · 🩹 lesionado" : ""}${p.listed ? " · 🔄 na lista" : ""}${p.wantOut ? " · 😠 quer sair" : ""}</div>
+          <div class="meta">${p.age} anos · ${D.roles[p.pos].find(r => r.code === p.role)?.name || p.role}${p.injury ? " · 🩹 lesionado" : ""}${p.listed ? " · 🔄 na lista" : ""}${p.loanListed ? " · 🔁 na lista de empréstimos" : ""}${p.loanedOut ? " · 📤 emprestado (volta em junho)" : ""}${p.loanedIn ? " · 📥 emprestado ao clube" : ""}${p.wantOut ? " · 😠 quer sair" : ""}</div>
           <div class="bar-row" style="margin-top:4px"><span class="lbl" style="width:auto">⚡ ${Math.round(p.energy)}</span>${bar(p.energy, energyColor(p.energy))}</div>
         </div>
         <div class="media">${p.media}</div>
@@ -235,7 +235,8 @@ const UI = (() => {
         <h3>📋 Tática</h3>
         <div class="pitch">${pitch}</div>
         <div class="row mt">
-          <button class="btn small" onclick="G.slotAuto()">🔄 Escalação automática</button>
+          <button class="btn small primary" onclick="G.slotAuto()">🤖 Melhor XI</button>
+          <button class="btn small" onclick="G.slotClear()">🧹 Limpar escolhas</button>
           <span class="muted small grow">${D.formations[lp.formation].desc}</span>
         </div>
       </div>
@@ -299,7 +300,7 @@ const UI = (() => {
           <div class="meta">${p.age} anos · de ${esc(p.from)}</div>
         </div>
         <div class="media">${p.media}</div>
-        <button class="btn small primary" onclick="event.stopPropagation();G.buy('${p.id}')">${fmt(p.value)}</button>
+        <button class="btn small primary" onclick="event.stopPropagation();G.buyModal('${p.id}')">${fmt(p.value)}</button>
       </div>`).join("");
     const free = s.freeAgents.map(p => `
       <div class="list-item" onclick="G.player('${p.id}', 'free')">
@@ -403,13 +404,19 @@ const UI = (() => {
       <div class="bar-row"><span class="lbl">${a.label}</span>${bar(p.attrs[a.key])}<span style="width:26px;text-align:right">${p.attrs[a.key]}</span></div>`).join("");
     const role = D.roles[p.pos].find(r => r.code === p.role);
     let actions = "";
-    if (ctx === "market") actions = `<button class="btn primary" onclick="G.buy('${p.id}')">Contratar por ${fmt(p.value)}</button>`;
+    if (ctx === "market") actions = `<button class="btn primary" onclick="G.buyModal('${p.id}')">Negociar (pedem ${fmt(p.asking || p.value)})</button>`;
     if (ctx === "free") actions = `<button class="btn gold" onclick="G.sign('${p.id}')">Assinar (prima ${fmt(p.wage * 2)})</button>`;
     if (!ctx || ctx === "squad") actions = `
       <div class="row">
         <button class="btn small grow" onclick="G.list('${p.id}', ${p.listed ? "false" : "true"})">${p.listed ? "Retirar da lista" : "Pôr na lista"}</button>
-        <button class="btn small danger grow" onclick="G.sell('${p.id}')">Vender</button>
-      </div>`;
+        <button class="btn small grow" onclick="G.loanList('${p.id}', ${p.loanListed ? "false" : "true"})">${p.loanListed ? "Tirar de empréstimos" : "🔁 Emprestar"}</button>
+      </div>
+      <div class="row mt" style="gap:8px">
+        <button class="btn small gold grow" onclick="G.sellModal('${p.id}')">Vender (negociar)</button>
+        <button class="btn small danger grow" onclick="G.sell('${p.id}')">Venda rápida</button>
+      </div>
+      ${p.loanedOut ? `<div class="sub">📤 Emprestado — volta em junho.</div>` : ""}
+      ${p.loanedIn ? `<div class="sub">📥 Emprestado ao clube — volta em junho.</div>` : ""}`;
     openModal(`
       <div class="row">
         <div class="pos" style="width:44px;height:44px;font-size:12px">${posShort[p.pos]}</div>
@@ -434,6 +441,67 @@ const UI = (() => {
       ${actions}
       ${ctx === "squad" || !ctx ? "" : ""}
       <button class="btn mt" onclick="UI.closeModal()">Fechar</button>`);
+  }
+
+  function negotiateModal(id) {
+    const s = state();
+    const p = s.market.find(x => x.id === id);
+    if (!p) return;
+    const o = G._offer;
+    const offer = o && o.id === id && o.amount > 0 ? o.amount : p.value;
+    if (o) { o.id = id; o.amount = offer; }
+    const can = s.cash >= offer;
+    openModal(`
+      <h2>🤝 Negociação — ${esc(p.name)}</h2>
+      <div class="row">
+        <div class="pos" style="width:44px;height:44px;font-size:12px">${posShort[p.pos]}</div>
+        <div class="grow">
+          <div class="sub">${esc(p.from || "?" )} · ${p.age} anos · média <b>${p.media}</b></div>
+          <div class="sub">O clube pede <b class="money">${fmt(p.asking)}</b> · valor de mercado ${fmt(p.value)}</div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="row" style="justify-content:center;gap:6px;margin:6px 0">
+        <button class="btn small" onclick="G.offerN(-200000)">−200k</button>
+        <button class="btn small" onclick="G.offerN(-50000)">−50k</button>
+        <div class="media" style="font-size:20px;min-width:110px;text-align:center">${fmt(offer)}</div>
+        <button class="btn small" onclick="G.offerN(50000)">+50k</button>
+        <button class="btn small" onclick="G.offerN(200000)">+200k</button>
+      </div>
+      <div class="row mt" style="gap:8px">
+        <button class="btn small grow" onclick="G.offerAt(${p.value})">Mercado</button>
+        <button class="btn small grow gold" onclick="G.offerAt(${p.asking})">Pedido</button>
+      </div>
+      <button class="btn primary mt" ${can ? "" : "disabled"} onclick="G.negotiate('${p.id}', ${offer})">Fazer proposta ${can ? "" : "(sem caixa)"}</button>
+      <button class="btn mt" onclick="UI.closeModal()">Cancelar</button>`);
+  }
+
+  function counterModal(id, amount, msg) {
+    const s = state();
+    const p = s.market.find(x => x.id === id);
+    if (!p) return;
+    openModal(`
+      <h2>🤝 Contraproposta</h2>
+      <div class="text">${esc(msg)} ${esc(p.name)} aceita por <b class="money">${fmt(amount)}</b>.</div>
+      <div class="row">
+        <button class="btn primary grow" onclick="G.counterPick('${id}', true)">Aceitar ${fmt(amount)}</button>
+        <button class="btn grow" onclick="G.counterPick('${id}', false)">Recusar</button>
+      </div>`);
+  }
+
+  function sellModal(id, offers) {
+    const s = state();
+    const p = s.squad.find(x => x.id === id);
+    if (!p) return;
+    openModal(`
+      <h2>🔄 Vender ${esc(p.name)}</h2>
+      <div class="text">Média ${p.media} · valor ${fmt(p.value)}. Interessados e ofertas:</div>
+      ${offers.map((o, i) => `
+        <button class="opt" onclick="G.sellPick(${i})">
+          ${esc(o.club)}
+          <span class="hint">${fmt(o.amount)} — toque para aceitar</span>
+        </button>`).join("")}
+      <button class="opt muted" onclick="UI.closeModal()">Não vender agora</button>`);
   }
 
   function eventModal(e) {
@@ -552,5 +620,5 @@ const UI = (() => {
     m.addEventListener("click", e => { if (e.target === m) closeModal(); });
   }
 
-  return { init, show, updateTopbar, toast, openModal, closeModal, playerModal, eventModal, promiseModal, reviewModal, seasonEndModal, deadModal, matchModal, playerById, esc };
+  return { init, show, updateTopbar, toast, openModal, closeModal, playerModal, negotiateModal, counterModal, sellModal, eventModal, promiseModal, reviewModal, seasonEndModal, deadModal, matchModal, playerById, esc };
 })();
